@@ -1,0 +1,9 @@
+models*
+.DS_Store
+**/.DS_Store
+.idea*
+bin/demo.mp4
+input
+output
+**/__pycache__
+output.mp4
