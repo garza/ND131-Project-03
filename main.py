@@ -5,6 +5,7 @@ import numpy as np
 import os.path as ospath
 import cv2
 from src.frame_feed import FrameFeed
+from src.face_detection import FaceDetector
 from src.mouse_controller import MouseController
 from time import time
 from argparse import ArgumentParser
@@ -22,7 +23,7 @@ def build_argparser():
                         help="Path to image or video file")
     parser.add_argument("-it", "--input_type", required=True, type=str, default="video",
                         help="video or cam for camera")
-    parser.add_argument("-m", "--model", required=True, type=str,
+    parser.add_argument("-mf", "--face_model", required=True, type=str,
                         help="Path to an xml file with a trained model.")
     parser.add_argument("-l", "--cpu_extension", required=False, type=str,
                         default=None,
@@ -45,19 +46,30 @@ def build_argparser():
 def infer_from_stream(args, stats):
     log.info("Infer on Stream!")
 
+def load_models(args, paths):
+    models = {}
+    face_model = FaceDetector(args.face_model, args.device, args.prob_threshold)
+    face_model.check_model()
+    face_model.load_model()
+    models["face"] = face_model
+    return models
+
 def main():
     """
-    Load the network and parse the output.
-
-    :return: None
+    our main run loop, get frame from FrameFeed
+    and process each one thru our inference models
+    draw our results to our frame and output to screen/save file
     """
     # Grab command line args
     args = build_argparser().parse_args()
+    model_paths = {}
+    face_model = args.face_model
+    model_paths["face"] = args.face_model
     # Perform inference on the input stream
     log.info("Main Start")
     log.info(args.input)
     inference_stats = []
-    infer_from_stream(args, inference_stats)
+    models = load_models(args, model_paths)
 
     if args.input_type == 'cam':
         feeder = FrameFeed(input_type='cam')
@@ -77,16 +89,24 @@ def main():
         if not ret:
             break
         total_frame_count =+ 1
+        inference_preview = frame.copy()
         BREAK_WAIT_KEY = cv2.waitKey(60)
         try:
             log.info("start inference tasks here")
+            #start_inf_time = time.time()
+            face, face_img = models["face"].predict(frame.copy())
+            if face == 0:
+                continue
+            cv2.rectangle(inference_preview, (face[0], face[1]), (face[2], face[3]),
+                          (0, 0, 255), 3)
+
         except Exception as err:
             log.error("encountered error")
             log.error(err)
             log.error("unable to complete inference tasks")
             continue
 
-        input_image = cv2.resize(frame, (900,500))
+        input_image = cv2.resize(inference_preview, (480,270))
         log.info("update preview here")
         cv2.imshow('POST inference', input_image)
         log.info("update output stream")
