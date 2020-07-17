@@ -6,11 +6,14 @@ import os.path as ospath
 import cv2
 from src.frame_feed import FrameFeed
 from src.face_detection import FaceDetector
+from src.head_pose_estimation import PoseDetector
+from src.facial_landmarks_detection import LandmarkDetector
 from src.mouse_controller import MouseController
 from time import time
 from argparse import ArgumentParser
 
 log.basicConfig(format='%(asctime)s - %(message)s', level=log.INFO)
+RED_MSG_COLOR = (0, 0, 255)
 
 def build_argparser():
     """
@@ -24,7 +27,11 @@ def build_argparser():
     parser.add_argument("-it", "--input_type", required=True, type=str, default="video",
                         help="video or cam for camera")
     parser.add_argument("-mf", "--face_model", required=True, type=str,
-                        help="Path to an xml file with a trained model.")
+                        help="Path to an xml file with a trained model for Face Detector.")
+    parser.add_argument("-ml", "--landmark_model", required=True, type=str,
+                        help="Path to an xml file with a trained model for Landmark Detector.")
+    parser.add_argument("-mp", "--pose_model", required=True, type=str,
+                        help="Path to an xml file with a trained model for Pose Detector.")
     parser.add_argument("-l", "--cpu_extension", required=False, type=str,
                         default=None,
                         help="MKLDNN (CPU)-targeted custom layers."
@@ -51,8 +58,45 @@ def load_models(args, paths):
     face_model = FaceDetector(args.face_model, args.device, args.prob_threshold)
     face_model.check_model()
     face_model.load_model()
+    pose_model = PoseDetector(args.pose_model, args.device)
+    pose_model.check_model()
+    pose_model.load_model()
+    landmark_model = LandmarkDetector(args.landmark_model, args.device)
+    landmark_model.check_model()
+    landmark_model.load_model()
+
     models["face"] = face_model
+    models["pose"] = pose_model
+    models["landmark"] = landmark_model
     return models
+
+def draw_face(frame, face):
+    cv2.rectangle(frame, (face[0], face[1]), (face[2], face[3]), RED_MSG_COLOR, 3)
+
+def draw_pose(frame, head_pose):
+    yaw_msg = "y:{:.1f}".format(head_pose[0])
+    pitch_msg = "p:{:.1f}".format(head_pose[1])
+    roll_msg = "r:{:.1f}".format(head_pose[2])
+    cv2.putText(frame, yaw_msg, (15, 45), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
+    cv2.putText(frame, pitch_msg, (15, 80), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
+    cv2.putText(frame, roll_msg, (15, 115), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
+
+def draw_eyes(frame, eyes, face):
+    ##Adjust eye positions to frame instead of cropped face image
+    le = eyes["eye_left"]
+    le[0] = le[0] + face[0]
+    le[1] = le[1] + face[1]
+    re = eyes["eye_right"]
+    re[0] = re[0] + face[0]
+    re[1] = re[1] + face[1]
+    #delta for drawing box
+    d = 7
+    #draw left eye
+    cv2.rectangle(frame, (le[0] - d, le[1] + d), (le[0] + d, le[1] - d), RED_MSG_COLOR, 3)
+    #draw right eye
+    cv2.rectangle(frame, (re[0] - d, re[1] + d), (re[0] + d, re[1] - d), RED_MSG_COLOR, 3)
+    ##Draw Right Eye Box
+    ##cv2.rectangle(frame, (eyes[1][0], eyes[1][1]), (eyes[1][2], eyes[1][3]), RED_MSG_COLOR, 3)
 
 def main():
     """
@@ -97,8 +141,13 @@ def main():
             face, face_img = models["face"].predict(frame.copy())
             if face == 0:
                 continue
-            cv2.rectangle(inference_preview, (face[0], face[1]), (face[2], face[3]),
-                          (0, 0, 255), 3)
+            draw_face(inference_preview, face)
+            head_pose = models["pose"].predict(face_img)
+            draw_pose(inference_preview, head_pose)
+            eyes = models["landmark"].predict(face_img)
+            log.info("eyes returned")
+            log.info(eyes)
+            draw_eyes(inference_preview, eyes, face)
 
         except Exception as err:
             log.error("encountered error")
@@ -106,7 +155,7 @@ def main():
             log.error("unable to complete inference tasks")
             continue
 
-        input_image = cv2.resize(inference_preview, (480,270))
+        input_image = cv2.resize(inference_preview, (960,540))
         log.info("update preview here")
         cv2.imshow('POST inference', input_image)
         log.info("update output stream")
