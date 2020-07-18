@@ -8,17 +8,19 @@ from src.frame_feed import FrameFeed
 from src.face_detection import FaceDetector
 from src.head_pose_estimation import PoseDetector
 from src.facial_landmarks_detection import LandmarkDetector
+from src.gaze_estimation import GazeDetector
 from src.mouse_controller import MouseController
 from time import time
 from argparse import ArgumentParser
 
 log.basicConfig(format='%(asctime)s - %(message)s', level=log.INFO)
 RED_MSG_COLOR = (0, 0, 255)
+EYE_DELTA = 30
+EYE_DELTA_HALF = 15
 
 def build_argparser():
     """
     Parse command line arguments.
-
     :return: command line arguments
     """
     parser = ArgumentParser()
@@ -32,6 +34,8 @@ def build_argparser():
                         help="Path to an xml file with a trained model for Landmark Detector.")
     parser.add_argument("-mp", "--pose_model", required=True, type=str,
                         help="Path to an xml file with a trained model for Pose Detector.")
+    parser.add_argument("-mg", "--gaze_model", required=True, type=str,
+                        help="Path to an xml file with a trained model for Gaze Detector.")
     parser.add_argument("-l", "--cpu_extension", required=False, type=str,
                         default=None,
                         help="MKLDNN (CPU)-targeted custom layers."
@@ -64,10 +68,13 @@ def load_models(args, paths):
     landmark_model = LandmarkDetector(args.landmark_model, args.device)
     landmark_model.check_model()
     landmark_model.load_model()
-
+    gaze_model = GazeDetector(args.gaze_model, args.device)
+    gaze_model.check_model()
+    gaze_model.load_model()
     models["face"] = face_model
     models["pose"] = pose_model
     models["landmark"] = landmark_model
+    models["gaze"] = gaze_model
     return models
 
 def draw_face(frame, face):
@@ -89,14 +96,19 @@ def draw_eyes(frame, eyes, face):
     re = eyes["eye_right"]
     re[0] = re[0] + face[0]
     re[1] = re[1] + face[1]
-    #delta for drawing box
-    d = 7
     #draw left eye
-    cv2.rectangle(frame, (le[0] - d, le[1] + d), (le[0] + d, le[1] - d), RED_MSG_COLOR, 3)
+    cv2.rectangle(frame, (le[0] - EYE_DELTA, le[1] + EYE_DELTA), (le[0] + EYE_DELTA, le[1] - EYE_DELTA), RED_MSG_COLOR, 3)
     #draw right eye
-    cv2.rectangle(frame, (re[0] - d, re[1] + d), (re[0] + d, re[1] - d), RED_MSG_COLOR, 3)
+    cv2.rectangle(frame, (re[0] - EYE_DELTA, re[1] + EYE_DELTA), (re[0] + EYE_DELTA, re[1] - EYE_DELTA), RED_MSG_COLOR, 3)
     ##Draw Right Eye Box
-    ##cv2.rectangle(frame, (eyes[1][0], eyes[1][1]), (eyes[1][2], eyes[1][3]), RED_MSG_COLOR, 3)
+    ##crop_img = img[y:y + h, x:x + w]
+    left_img = frame[le[1] - EYE_DELTA_HALF: le[1] + EYE_DELTA_HALF, le[0] - EYE_DELTA_HALF: le[0] + EYE_DELTA_HALF]
+    right_img = frame[re[1] - EYE_DELTA_HALF: re[1] + EYE_DELTA_HALF, re[0] - EYE_DELTA_HALF: re[0] + EYE_DELTA_HALF]
+    return left_img, right_img
+
+def draw_gaze(frame, position, vector):
+    gaze_msg = "gx, gy: x= {:.2f}, y= {:.2f}, z= {:.2f}".format(vector[0], vector[1], vector[2])
+    cv2.putText(frame, gaze_msg, (15, 150), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
 
 def main():
     """
@@ -106,6 +118,7 @@ def main():
     """
     # Grab command line args
     args = build_argparser().parse_args()
+    mc = MouseController('high', 'fast')
     model_paths = {}
     face_model = args.face_model
     model_paths["face"] = args.face_model
@@ -114,7 +127,6 @@ def main():
     log.info(args.input)
     inference_stats = []
     models = load_models(args, model_paths)
-
     if args.input_type == 'cam':
         feeder = FrameFeed(input_type='cam')
     else:
@@ -123,7 +135,6 @@ def main():
             log.error(args.input)
             exit(1)
         feeder = FrameFeed(input_type='video', input_file=args.input)
-
     feeder.load_data()
     # TODO: demo video is 30 FPS and 1920x1080, ideally we would want to query this info from cv2, maybe
     # add this functionality from our FrameFeed class?
@@ -132,7 +143,7 @@ def main():
     for ret, frame in feeder.next_frame():
         if not ret:
             break
-        total_frame_count =+ 1
+        total_frame_count = total_frame_count + 1
         inference_preview = frame.copy()
         BREAK_WAIT_KEY = cv2.waitKey(60)
         try:
@@ -145,10 +156,13 @@ def main():
             head_pose = models["pose"].predict(face_img)
             draw_pose(inference_preview, head_pose)
             eyes = models["landmark"].predict(face_img)
-            log.info("eyes returned")
-            log.info(eyes)
-            draw_eyes(inference_preview, eyes, face)
-
+            left_eye_img, right_eye_img = draw_eyes(inference_preview, eyes, face)
+            gaze_position, gaze_vector = models["gaze"].predict(left_eye_img, right_eye_img, head_pose)
+            draw_gaze(inference_preview, gaze_position, gaze_vector)
+            log.info("fame count: %d", total_frame_count)
+            if total_frame_count % 5 == 0:
+                log.info("move mouse based on results here")
+                mc.move(gaze_position[0], gaze_position[1])
         except Exception as err:
             log.error("encountered error")
             log.error(err)
@@ -161,14 +175,10 @@ def main():
         log.info("update output stream")
         outputstream.write(frame)
 
-        if total_frame_count % 5 == 0:
-            log.info("move mouse based on results here")
-
         if BREAK_WAIT_KEY == 27:
             break
 
         log.info("compute and store stats here")
-
     try:
         os.mkdir(args.output_path)
     except OSError as error:
@@ -177,13 +187,10 @@ def main():
 
     log.info("output final inference stats")
     log.info(inference_stats)
-
     log.info("save inference stats as output file")
-
     log.info("finished processing input video file")
     cv2.destroyAllWindows()
     feeder.close()
-
 
 if __name__ == '__main__':
     main()
