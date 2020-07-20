@@ -84,7 +84,7 @@ class FaceDetector:
         post_frame = post_frame.reshape(1, *post_frame.shape)
         input_width = post_frame.shape[1]
         input_height = post_frame.shape[0]
-        log.info("input width x height: %d x %d", self.input_shape[3], self.input_shape[2])
+        log.debug("input width x height: %d x %d", self.input_shape[3], self.input_shape[2])
         return post_frame
 
     def preprocess_output(self, outputs, image):

@@ -16,7 +16,13 @@ from argparse import ArgumentParser
 log.basicConfig(format='%(asctime)s - %(message)s', level=log.INFO)
 RED_MSG_COLOR = (0, 0, 255)
 EYE_DELTA = 30
-EYE_DELTA_HALF = 15
+EYE_DELTA_HALF = 25
+#update mouse every x frames
+MOUSE_UPDATE_RATE = 3
+#high|low|medium
+MOUSE_PRECISION = 'low'
+#fast|slow|medium
+MOUSE_SPEED = 'fast'
 
 def build_argparser():
     """
@@ -59,23 +65,37 @@ def infer_from_stream(args, stats):
 
 def load_models(args, paths):
     models = {}
+    load_times = []
+    start_time = time()
     face_model = FaceDetector(args.face_model, args.device, args.prob_threshold)
     face_model.check_model()
     face_model.load_model()
+    load_time = time() - start_time
+    load_times.append({"face_model": args.face_model, "load_time": load_time})
+    start_time = time()
     pose_model = PoseDetector(args.pose_model, args.device)
     pose_model.check_model()
     pose_model.load_model()
+    load_time = time() - start_time
+    load_times.append({"pose_model": args.pose_model, "load_time": load_time})
+    start_time = time()
     landmark_model = LandmarkDetector(args.landmark_model, args.device)
     landmark_model.check_model()
     landmark_model.load_model()
+    load_time = time() - start_time
+    load_times.append({"landmark_model": args.landmark_model, "load_time": load_time})
+    start_time = time()
     gaze_model = GazeDetector(args.gaze_model, args.device)
     gaze_model.check_model()
     gaze_model.load_model()
+    load_time = time() - start_time
+    load_times.append({"gaze_model": args.gaze_model, "load_time": load_time})
+    start_time = time()
     models["face"] = face_model
     models["pose"] = pose_model
     models["landmark"] = landmark_model
     models["gaze"] = gaze_model
-    return models
+    return models, load_times
 
 def draw_face(frame, face):
     cv2.rectangle(frame, (face[0], face[1]), (face[2], face[3]), RED_MSG_COLOR, 3)
@@ -107,8 +127,11 @@ def draw_eyes(frame, eyes, face):
     return left_img, right_img
 
 def draw_gaze(frame, position, vector):
-    gaze_msg = "gx, gy: x= {:.2f}, y= {:.2f}, z= {:.2f}".format(vector[0], vector[1], vector[2])
+    gaze_msg = "gaze: x= {:.2f}, y= {:.2f}, z= {:.2f}".format(vector[0], vector[1], vector[2])
     cv2.putText(frame, gaze_msg, (15, 150), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
+
+def inf_avg(times):
+    return np.array(times).mean()
 
 def main():
     """
@@ -118,15 +141,16 @@ def main():
     """
     # Grab command line args
     args = build_argparser().parse_args()
-    mc = MouseController('high', 'fast')
+    mc = MouseController(MOUSE_PRECISION, MOUSE_SPEED)
     model_paths = {}
     face_model = args.face_model
     model_paths["face"] = args.face_model
     # Perform inference on the input stream
     log.info("Main Start")
     log.info(args.input)
-    inference_stats = []
-    models = load_models(args, model_paths)
+    inference_stats = {}
+    models, load_times = load_models(args, model_paths)
+    inference_stats["load_times"] = load_times
     if args.input_type == 'cam':
         feeder = FrameFeed(input_type='cam')
     else:
@@ -138,8 +162,12 @@ def main():
     feeder.load_data()
     # TODO: demo video is 30 FPS and 1920x1080, ideally we would want to query this info from cv2, maybe
     # add this functionality from our FrameFeed class?
-    outputstream = cv2.VideoWriter(os.path.join('output.mp4'), cv2.VideoWriter_fourcc(*'avc1'), 30/10, (1920, 1080), True)
+    ## outputstream = cv2.VideoWriter(os.path.join('output.mp4'), cv2.VideoWriter_fourcc(*'avc1'), 30/10, (1920, 1080), True)
     total_frame_count = 0
+    face_inf = []
+    pose_inf = []
+    land_inf = []
+    gaze_inf = []
     for ret, frame in feeder.next_frame():
         if not ret:
             break
@@ -147,21 +175,30 @@ def main():
         inference_preview = frame.copy()
         BREAK_WAIT_KEY = cv2.waitKey(60)
         try:
-            log.info("start inference tasks here")
+            #log.info("start inference tasks here")
             #start_inf_time = time.time()
+            start_time = time()
             face, face_img = models["face"].predict(frame.copy())
+            face_inf.append(time() - start_time)
             if face == 0:
                 continue
             draw_face(inference_preview, face)
+            start_time = time()
             head_pose = models["pose"].predict(face_img)
+            pose_inf.append(time() - start_time)
+            start_time = time()
             draw_pose(inference_preview, head_pose)
             eyes = models["landmark"].predict(face_img)
+            ## use a fresh copy of the input frame since we have draw a facebox on inference_preview
             left_eye_img, right_eye_img = draw_eyes(inference_preview, eyes, face)
+            land_inf.append(time() - start_time)
+            start_time = time()
             gaze_position, gaze_vector = models["gaze"].predict(left_eye_img, right_eye_img, head_pose)
+            gaze_inf.append(time() - start_time)
             draw_gaze(inference_preview, gaze_position, gaze_vector)
-            log.info("fame count: %d", total_frame_count)
-            if total_frame_count % 5 == 0:
-                log.info("move mouse based on results here")
+            #log.info("fame count: %d", total_frame_count)
+            if total_frame_count % MOUSE_UPDATE_RATE == 0:
+                log.debug("move mouse based on results here")
                 mc.move(gaze_position[0], gaze_position[1])
         except Exception as err:
             log.error("encountered error")
@@ -170,24 +207,33 @@ def main():
             continue
 
         input_image = cv2.resize(inference_preview, (960,540))
-        log.info("update preview here")
+        #update preview image here
         cv2.imshow('POST inference', input_image)
-        log.info("update output stream")
-        outputstream.write(frame)
+        #log.info("update output stream")
+        ##outputstream.write(frame)
 
         if BREAK_WAIT_KEY == 27:
             break
-
-        log.info("compute and store stats here")
+        #log.info("compute and store stats here")
     try:
+        log.info("creating output path")
+        log.info(args.output_path)
         os.mkdir(args.output_path)
     except OSError as error:
         log.error("unable to create output path")
         log.error(error)
 
-    log.info("output final inference stats")
+    inference_times = { "face_mean": inf_avg(face_inf),
+                        "pose_mean": inf_avg(pose_inf),
+                        "land_mean": inf_avg(land_inf),
+                        "gaze_mean": inf_avg(gaze_inf)}
+    inference_stats["inf_avgs"] = inference_times
+    with open(args.output_path+'/inf_stats.json', 'w') as f:
+        f.write(str(inference_stats) + '\n')
+        f.flush()
+        f.close()
+    log.info("inference stats")
     log.info(inference_stats)
-    log.info("save inference stats as output file")
     log.info("finished processing input video file")
     cv2.destroyAllWindows()
     feeder.close()
