@@ -20,9 +20,11 @@ EYE_DELTA_HALF = 25
 #update mouse every x frames
 MOUSE_UPDATE_RATE = 3
 #high|low|medium
-MOUSE_PRECISION = 'low'
+MOUSE_PRECISION = 'medium'
 #fast|slow|medium
 MOUSE_SPEED = 'fast'
+MOUSE_SCALE = 0.25
+mc = MouseController(MOUSE_PRECISION, MOUSE_SPEED)
 
 def build_argparser():
     """
@@ -32,6 +34,8 @@ def build_argparser():
     parser = ArgumentParser()
     parser.add_argument("-i", "--input", required=True, type=str,
                         help="Path to image or video file")
+    parser.add_argument("-v", "--visualize", required=True, type=str, default="Yes",
+                        help="Visualize inference output")
     parser.add_argument("-it", "--input_type", required=True, type=str, default="video",
                         help="video or cam for camera")
     parser.add_argument("-mf", "--face_model", required=True, type=str,
@@ -108,7 +112,7 @@ def draw_pose(frame, head_pose):
     cv2.putText(frame, pitch_msg, (15, 80), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
     cv2.putText(frame, roll_msg, (15, 115), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
 
-def draw_eyes(frame, eyes, face):
+def draw_eyes(frame, eyes, face, visualize):
     ##Adjust eye positions to frame instead of cropped face image
     le = eyes["eye_left"]
     le[0] = le[0] + face[0]
@@ -116,22 +120,30 @@ def draw_eyes(frame, eyes, face):
     re = eyes["eye_right"]
     re[0] = re[0] + face[0]
     re[1] = re[1] + face[1]
-    #draw left eye
-    cv2.rectangle(frame, (le[0] - EYE_DELTA, le[1] + EYE_DELTA), (le[0] + EYE_DELTA, le[1] - EYE_DELTA), RED_MSG_COLOR, 3)
-    #draw right eye
-    cv2.rectangle(frame, (re[0] - EYE_DELTA, re[1] + EYE_DELTA), (re[0] + EYE_DELTA, re[1] - EYE_DELTA), RED_MSG_COLOR, 3)
+    if visualize == "Yes":
+        #draw left eye
+        cv2.rectangle(frame, (le[0] - EYE_DELTA, le[1] + EYE_DELTA), (le[0] + EYE_DELTA, le[1] - EYE_DELTA), RED_MSG_COLOR, 3)
+        #draw right eye
+        cv2.rectangle(frame, (re[0] - EYE_DELTA, re[1] + EYE_DELTA), (re[0] + EYE_DELTA, re[1] - EYE_DELTA), RED_MSG_COLOR, 3)
     ##Draw Right Eye Box
     ##crop_img = img[y:y + h, x:x + w]
     left_img = frame[le[1] - EYE_DELTA_HALF: le[1] + EYE_DELTA_HALF, le[0] - EYE_DELTA_HALF: le[0] + EYE_DELTA_HALF]
     right_img = frame[re[1] - EYE_DELTA_HALF: re[1] + EYE_DELTA_HALF, re[0] - EYE_DELTA_HALF: re[0] + EYE_DELTA_HALF]
     return left_img, right_img
 
-def draw_gaze(frame, position, vector):
+def draw_gaze(frame, position, vector, face, eyes):
+    ##implementation from OpenVino Open Model Zoo Demos
+    ##/opt/intel/openvino/deployment_tools/open_model_zoo/demos/gaze_estimation_demo/src/gaze_estimator.cpp
     gaze_msg = "gaze: x= {:.2f}, y= {:.2f}, z= {:.2f}".format(vector[0], vector[1], vector[2])
     cv2.putText(frame, gaze_msg, (15, 150), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
+    eyeXOffset = eyes["eye_left"][0]
+    eyeYOffset = eyes["eye_left"][1]
 
 def inf_avg(times):
     return np.array(times).mean()
+
+def mm(x, y):
+    mc.move(x * MOUSE_SCALE, y * MOUSE_SCALE)
 
 def main():
     """
@@ -141,7 +153,6 @@ def main():
     """
     # Grab command line args
     args = build_argparser().parse_args()
-    mc = MouseController(MOUSE_PRECISION, MOUSE_SPEED)
     model_paths = {}
     face_model = args.face_model
     model_paths["face"] = args.face_model
@@ -182,24 +193,27 @@ def main():
             face_inf.append(time() - start_time)
             if face == 0:
                 continue
-            draw_face(inference_preview, face)
+            if args.visualize == "Yes":
+                draw_face(inference_preview, face)
             start_time = time()
             head_pose = models["pose"].predict(face_img)
             pose_inf.append(time() - start_time)
             start_time = time()
-            draw_pose(inference_preview, head_pose)
+            if args.visualize == "Yes":
+                draw_pose(inference_preview, head_pose)
             eyes = models["landmark"].predict(face_img)
             ## use a fresh copy of the input frame since we have draw a facebox on inference_preview
-            left_eye_img, right_eye_img = draw_eyes(inference_preview, eyes, face)
+            left_eye_img, right_eye_img = draw_eyes(inference_preview, eyes, face, args.visualize)
             land_inf.append(time() - start_time)
             start_time = time()
             gaze_position, gaze_vector = models["gaze"].predict(left_eye_img, right_eye_img, head_pose)
             gaze_inf.append(time() - start_time)
-            draw_gaze(inference_preview, gaze_position, gaze_vector)
+            if args.visualize == "Yes":
+                draw_gaze(inference_preview, gaze_position, gaze_vector, face, eyes)
             #log.info("fame count: %d", total_frame_count)
             if total_frame_count % MOUSE_UPDATE_RATE == 0:
                 log.debug("move mouse based on results here")
-                mc.move(gaze_position[0], gaze_position[1])
+                mm(gaze_position[0], gaze_position[1])
         except Exception as err:
             log.error("encountered error")
             log.error(err)
