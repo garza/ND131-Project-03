@@ -12,9 +12,12 @@ from src.gaze_estimation import GazeDetector
 from src.mouse_controller import MouseController
 from time import time
 from argparse import ArgumentParser
+import math
 
 log.basicConfig(format='%(asctime)s - %(message)s', level=log.INFO)
 RED_MSG_COLOR = (0, 0, 255)
+BLU_MSG_COLOR = (255, 0, 0)
+GRN_MSG_COLOR = (0, 255, 0)
 EYE_DELTA = 30
 EYE_DELTA_HALF = 25
 #update mouse every x frames
@@ -104,13 +107,39 @@ def load_models(args, paths):
 def draw_face(frame, face):
     cv2.rectangle(frame, (face[0], face[1]), (face[2], face[3]), RED_MSG_COLOR, 3)
 
-def draw_pose(frame, head_pose):
+def draw_pose(frame, head_pose, face):
+    face_width = int(abs(face[2] - face[0]))
+    face_height = int(abs(face[3] - face[1]))
     yaw_msg = "y:{:.1f}".format(head_pose[0])
     pitch_msg = "p:{:.1f}".format(head_pose[1])
     roll_msg = "r:{:.1f}".format(head_pose[2])
     cv2.putText(frame, yaw_msg, (15, 45), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
     cv2.putText(frame, pitch_msg, (15, 80), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
     cv2.putText(frame, roll_msg, (15, 115), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
+    sinYaw = math.sin(head_pose[0] * math.pi / 180.0)
+    sinPitch = math.sin(head_pose[1] * math.pi / 180.0)
+    sinRoll = math.sin(head_pose[2] * math.pi / 180.0)
+    cosYaw = math.cos(head_pose[0] * math.pi / 180.0)
+    cosPitch = math.cos(head_pose[1] * math.pi / 180.0)
+    cosRoll = math.cos(head_pose[2] * math.pi / 180.0)
+    axisBar = 120
+    center_x = int((face[0] + face_width)/2)
+    center_y = int((face[1] + face_height)/2)
+    # X-axis
+    cv2.line(frame, (center_x, center_y),
+             (((center_x) + int(axisBar * (cosRoll * cosYaw + sinYaw * sinPitch * sinRoll))),
+              ((center_y) + int(axisBar * cosPitch * sinRoll))),
+             RED_MSG_COLOR, thickness=2)
+    # Y-axis
+    cv2.line(frame, (center_x, center_y),
+             (((center_x) + int(axisBar * (cosRoll * sinYaw * sinPitch + cosYaw * sinRoll))),
+              ((center_y) - int(axisBar * cosPitch * cosRoll))),
+             GRN_MSG_COLOR, thickness=2)
+    # Z-axis
+    cv2.line(frame, (center_x, center_y),
+             (((center_x) + int(axisBar * sinYaw * cosPitch)),
+              ((center_y) + int(axisBar * sinPitch))),
+             BLU_MSG_COLOR, thickness=2)
 
 def draw_eyes(frame, eyes, face, visualize):
     ##Adjust eye positions to frame instead of cropped face image
@@ -131,16 +160,30 @@ def draw_eyes(frame, eyes, face, visualize):
     right_img = frame[re[1] - EYE_DELTA_HALF: re[1] + EYE_DELTA_HALF, re[0] - EYE_DELTA_HALF: re[0] + EYE_DELTA_HALF]
     return left_img, right_img
 
-def draw_gaze(frame, position, vector, face, eyes):
+def draw_gaze(frame, position, vector, landmarks):
     ##implementation from OpenVino Open Model Zoo Demos
     ##/opt/intel/openvino/deployment_tools/open_model_zoo/demos/gaze_estimation_demo/src/gaze_estimator.cpp
     gaze_msg = "gaze: x= {:.2f}, y= {:.2f}, z= {:.2f}".format(vector[0], vector[1], vector[2])
     cv2.putText(frame, gaze_msg, (15, 150), cv2.FONT_HERSHEY_COMPLEX, 1.0, RED_MSG_COLOR, 2)
-    eyeXOffset = eyes["eye_left"][0]
-    eyeYOffset = eyes["eye_left"][1]
+    log.info("landmarks")
+    log.info(landmarks)
+    lex = landmarks['eye_left'][0]
+    ley = landmarks['eye_left'][1]
+    rex = landmarks['eye_right'][0]
+    rey = landmarks['eye_right'][1]
+    nx = landmarks['nose'][0]
+    ny = landmarks['nose'][1]
+    llx = landmarks['lip_left'][0]
+    lly = landmarks['lip_left'][1]
 
-def inf_avg(times):
-    return np.array(times).mean()
+    lem_start = int((lex + rex)/2)
+    lem_end = int((ley + rey)/2)
+
+    arrowBar = 175
+    gaze_x = int(vector[0] * arrowBar)
+    gaze_y = int(-(vector[1]) * arrowBar)
+
+    cv2.arrowedLine(frame, (lem_start, lem_end), ((lem_start + gaze_x), (lem_end + (gaze_y))), BLU_MSG_COLOR, 5)
 
 def mm(x, y):
     mc.move(x * MOUSE_SCALE, y * MOUSE_SCALE)
@@ -173,7 +216,7 @@ def main():
     feeder.load_data()
     # TODO: demo video is 30 FPS and 1920x1080, ideally we would want to query this info from cv2, maybe
     # add this functionality from our FrameFeed class?
-    ## outputstream = cv2.VideoWriter(os.path.join('output.mp4'), cv2.VideoWriter_fourcc(*'avc1'), 30/10, (1920, 1080), True)
+    outputstream = cv2.VideoWriter(os.path.join('output.mp4'), cv2.VideoWriter_fourcc(*'avc1'), 30/10, (1920, 1080), True)
     total_frame_count = 0
     face_inf = []
     pose_inf = []
@@ -187,7 +230,6 @@ def main():
         BREAK_WAIT_KEY = cv2.waitKey(60)
         try:
             #log.info("start inference tasks here")
-            #start_inf_time = time.time()
             start_time = time()
             face, face_img = models["face"].predict(frame.copy())
             face_inf.append(time() - start_time)
@@ -200,7 +242,7 @@ def main():
             pose_inf.append(time() - start_time)
             start_time = time()
             if args.visualize == "Yes":
-                draw_pose(inference_preview, head_pose)
+                draw_pose(inference_preview, head_pose, face)
             eyes = models["landmark"].predict(face_img)
             ## use a fresh copy of the input frame since we have draw a facebox on inference_preview
             left_eye_img, right_eye_img = draw_eyes(inference_preview, eyes, face, args.visualize)
@@ -209,7 +251,8 @@ def main():
             gaze_position, gaze_vector = models["gaze"].predict(left_eye_img, right_eye_img, head_pose)
             gaze_inf.append(time() - start_time)
             if args.visualize == "Yes":
-                draw_gaze(inference_preview, gaze_position, gaze_vector, face, eyes)
+                ##log.info("visualize gaze:")
+                draw_gaze(inference_preview, gaze_position, gaze_vector, eyes)
             #log.info("fame count: %d", total_frame_count)
             if total_frame_count % MOUSE_UPDATE_RATE == 0:
                 log.debug("move mouse based on results here")
@@ -224,7 +267,7 @@ def main():
         #update preview image here
         cv2.imshow('POST inference', input_image)
         #log.info("update output stream")
-        ##outputstream.write(frame)
+        outputstream.write(inference_preview)
 
         if BREAK_WAIT_KEY == 27:
             break

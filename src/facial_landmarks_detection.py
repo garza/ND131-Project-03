@@ -90,5 +90,17 @@ class LandmarkDetector:
         ##Right Eye Position (X,Y)
         eye_r_x = int(outputs[2] * width)
         eye_r_y = int(outputs[3] * height)
-        result = {'eye_left': [eye_l_x, eye_l_y], 'eye_right': [eye_r_x, eye_r_y]}
+        nose_x = int(outputs[4] * width)
+        nose_y = int(outputs[5] * height)
+        lip_l_x = int(outputs[6] * width)
+        lip_l_y = int(outputs[7] * height)
+        lip_r_x = int(outputs[8] * width)
+        lip_r_y = int(outputs[9] * height)
+        ##used for later drawing
+        result = {'eye_left': [eye_l_x, eye_l_y],
+                  'eye_right': [eye_r_x, eye_r_y],
+                  'nose': [nose_x, nose_y],
+                  'lip_left': [lip_l_x, lip_l_y],
+                  'lip_right': [lip_r_x, lip_r_y]
+                  }
         return result
