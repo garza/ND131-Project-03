@@ -1,0 +1,21 @@
+﻿model name,load time,average inference time,load time (ms),average inference time (ms)
+models/intel/face-detection-adas-binary-0001/FP32-INT1/face-detection-adas-binary-0001,0.237967014,0.015242156,237.9670143,15.24215634
+models/intel/head-pose-estimation-adas-0001/FP32-INT8/head-pose-estimation-adas-0001,0.22331214,0.00119908,223.3121395,1.199079772
+models/intel/landmarks-regression-retail-0009/FP32-INT8/landmarks-regression-retail-0009,0.21282196,0.001234641,212.8219604,1.234640509
+models/intel/gaze-estimation-adas-0002/FP32-INT8/gaze-estimation-adas-0002,0.315934896,0.001327272,315.9348965,1.327272189
+TOTALS,0.990036011,0.019003149,990.0360107,19.00314881
+models/intel/face-detection-adas-0001/FP32-INT8/face-detection-adas-0001,0.755879879,0.017186678,755.879879,17.18667806
+models/intel/head-pose-estimation-adas-0001/FP32-INT8/head-pose-estimation-adas-0001,0.210618019,0.001205254,210.6180191,1.205254409
+models/intel/landmarks-regression-retail-0009/FP32-INT8/landmarks-regression-retail-0009,0.208256006,0.00123557,208.2560062,1.235569938
+models/intel/gaze-estimation-adas-0002/FP32-INT8/gaze-estimation-adas-0002,0.312417984,0.001329923,312.417984,1.32992308
+TOTALS,1.487171888,0.020957425,1487.171888,20.95742549
+models/intel/face-detection-adas-0001/FP32/face-detection-adas-0001,0.561274052,0.018715329,561.2740517,18.71532909
+models/intel/head-pose-estimation-adas-0001/FP32/head-pose-estimation-adas-0001,0.162433624,0.001431954,162.4336243,1.431954109
+models/intel/landmarks-regression-retail-0009/FP32/landmarks-regression-retail-0009,0.165342093,0.001258377,165.3420925,1.258377301
+models/intel/gaze-estimation-adas-0002/FP32/gaze-estimation-adas-0002,0.179258108,0.001695075,179.2581081,1.695075278
+TOTALS,1.068307877,0.023100736,1068.307877,23.10073578
+models/intel/face-detection-adas-0001/FP16/face-detection-adas-0001,0.481156111,0.018007315,481.1561108,18.00731481
+models/intel/head-pose-estimation-adas-0001/FP16/head-pose-estimation-adas-0001,0.159176826,0.001310745,159.1768265,1.310744528
+models/intel/landmarks-regression-retail-0009/FP16/landmarks-regression-retail-0009,0.171362877,0.001195592,171.3628769,1.195592395
+models/intel/gaze-estimation-adas-0002/FP16/gaze-estimation-adas-0002,0.189639807,0.001622511,189.6398067,1.622511169
+TOTALS,1.001335621,0.022136163,1001.335621,22.1361629
