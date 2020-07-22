@@ -67,6 +67,8 @@ Performance of different face detection models and precisions:
 ## Results
 Utilizing the comparison, I was able to settle on an inference pipeline that was able to complete the four required inferences on a CPU device in an average of .019 seconds or 19ms, resulting in a pipeline that could more than keep up with the 30fps input demo video provided.  However, the main bottleneck was in the moving of the mouse pointer as it was also done on the same thread as processing each inference.  To compensate, I only updated the mouse position once for every three frames processed (10fps).  Adding an additional scale factor to decrease the distance move of each mouse move call also helped (a factor of 1/4 was used to quarter each distance).
 
+For the code for visualizing the gaze estimation, as well as other inference outputs, I relied heavily on both the python and C++ demo code contained in the OpenVino Toolkit, specifically, the [Gaze Estimation Demo](https://docs.openvinotoolkit.org/latest/omz_demos_gaze_estimation_demo_README.html).  I also reused alot of the main pipeline code from Project 01 of this course in order to build the main run loop and inference classes.
+
 ## Stand Out Suggestions
 I abstracted each visualization (one for each model) into their own function to make the main pipeline code in main.py easy to understand. Additionally, these visualizes can be globally turned off by passing the -v flag of "No" when running the program.
 
